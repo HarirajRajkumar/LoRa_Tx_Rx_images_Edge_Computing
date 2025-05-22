@@ -1,0 +1,205 @@
+# Large Image Support Fix - Changes Summary
+
+## Issue Fixed
+- **Problem**: Images larger than 65KB failed with "ushort format requires 0 <= number <= 65535" error
+- **Root Cause**: Using 16-bit integers (`H` format) instead of 32-bit integers (`I` format) in packet structures
+- **Solution**: Updated packet formats to support larger images and fragment counts
+
+## Files to Update
+
+### 1. `lora_image_Tx.py` (Transmitter)
+
+#### Change 1: Update `send_image()` method - Start Packet
+**Location**: Around line 592 in the `send_image()` method
+
+**FROM:**
+```python
+# Send start packet
+start_packet = (b'S' + image_id_bytes + 
+               struct.pack('<HH', len(image_data), total_fragments) + 
+               start_time_bytes)
+```
+
+**TO:**
+```python
+# Send start packet - FIXED: Use 'I' (uint32) instead of 'H' (uint16) for large images
+start_packet = (b'S' + image_id_bytes + 
+               struct.pack('<II', len(image_data), total_fragments) + 
+               start_time_bytes)
+```
+
+#### Change 2: Update `send_image()` method - Fragment Packet
+**Location**: Around line 607 in the `send_image()` method
+
+**FROM:**
+```python
+# Send fragments
+packet = (b'F' + image_id_bytes + 
+         struct.pack('<HHH', fragment_id, total_fragments, len(chunk)) + 
+         chunk)
+```
+
+**TO:**
+```python
+# Send fragments - FIXED: Use 'I' for fragment_id and total_fragments
+packet = (b'F' + image_id_bytes + 
+         struct.pack('<IIH', fragment_id, total_fragments, len(chunk)) + 
+         chunk)
+```
+
+#### Change 3: Update header comments and messages
+**Location**: Add to docstring and main() function
+
+**Add this line to the main title:**
+```python
+print("📤 RAK3172 LoRa Image Transmitter - FIXED for Large Images")
+print("=" * 60)
+```
+
+**Add this line to the ready message:**
+```python
+print(f"\n🚀 Transmitter ready! (Now supports large images >65KB)")
+```
+
+---
+
+### 2. `lora_image_Rx.py` (Receiver)
+
+#### Change 1: Update `_handle_start_packet()` method
+**Location**: Around line 137 in the `_handle_start_packet()` method
+
+**FROM:**
+```python
+def _handle_start_packet(self, packet_data, rssi, snr):
+    """Handle start packet"""
+    if len(packet_data) < 21:
+        print("⚠️  Invalid start packet size")
+        return
+    
+    image_id = packet_data[1:9].decode('utf-8').rstrip('\x00')
+    total_size, total_fragments = struct.unpack('<HH', packet_data[9:13])
+    start_timestamp = struct.unpack('<d', packet_data[13:21])[0]
+```
+
+**TO:**
+```python
+def _handle_start_packet(self, packet_data, rssi, snr):
+    """Handle start packet - FIXED: Support for large images >65KB"""
+    # FIXED: Changed minimum size from 21 to 25 bytes (added 4 bytes for larger integers)
+    if len(packet_data) < 25:
+        print(f"⚠️  Invalid start packet size: {len(packet_data)} bytes (expected ≥25)")
+        return
+    
+    image_id = packet_data[1:9].decode('utf-8').rstrip('\x00')
+    
+    # FIXED: Changed from '<HH' to '<II' to support images > 65KB
+    total_size, total_fragments = struct.unpack('<II', packet_data[9:17])
+    start_timestamp = struct.unpack('<d', packet_data[17:25])[0]
+```
+
+#### Change 2: Update `_handle_fragment_packet()` method
+**Location**: Around line 165 in the `_handle_fragment_packet()` method
+
+**FROM:**
+```python
+def _handle_fragment_packet(self, packet_data, rssi, snr):
+    """Handle fragment packet"""
+    if len(packet_data) < 15:
+        print("⚠️  Invalid fragment packet size")
+        return
+    
+    image_id = packet_data[1:9].decode('utf-8').rstrip('\x00')
+    fragment_id, total_fragments, data_length = struct.unpack('<HHH', packet_data[9:15])
+    fragment_data = packet_data[15:15+data_length]
+```
+
+**TO:**
+```python
+def _handle_fragment_packet(self, packet_data, rssi, snr):
+    """Handle fragment packet - FIXED: Support for large images >65KB"""
+    # FIXED: Changed minimum size from 15 to 17 bytes (added 2 bytes for larger integers)
+    if len(packet_data) < 17:
+        print(f"⚠️  Invalid fragment packet size: {len(packet_data)} bytes (expected ≥17)")
+        return
+    
+    image_id = packet_data[1:9].decode('utf-8').rstrip('\x00')
+    
+    # FIXED: Changed from '<HHH' to '<IIH' (fragment_id and total_fragments as uint32, data_length as uint16)
+    fragment_id, total_fragments, data_length = struct.unpack('<IIH', packet_data[9:17])
+    fragment_data = packet_data[17:17+data_length]
+```
+
+#### Change 3: Update header comments and messages
+**Location**: Add to docstring and main() function
+
+**Add this line to the main title:**
+```python
+print("📡 RAK3172 LoRa Image Receiver - FIXED for Large Images")
+print("=" * 60)
+```
+
+**Add this line to the listening message:**
+```python
+print("📡 Starting LoRa image receiver... (Now supports large images >65KB)")
+```
+
+#### Change 4: Improve display formatting for large fragment counts
+**Location**: Around line 200 in `_handle_fragment_packet()` method
+
+**FROM:**
+```python
+print(f"📨 Fragment {fragment_id+1:2d}/{total} ✅ ({len(fragment_data):3d} bytes) "
+      f"Progress: {received:2d}/{total} ({received/total*100:5.1f}%) "
+      f"{rssi_status} RSSI={rssi}dBm SNR={snr}dB")
+```
+
+**TO:**
+```python
+# Show progress with better formatting for large fragment counts
+if total >= 1000:
+    print(f"📨 Fragment {fragment_id+1:4d}/{total:4d} ✅ ({len(fragment_data):3d} bytes) "
+          f"Progress: {received:4d}/{total:4d} ({received/total*100:5.1f}%) "
+          f"{rssi_status} RSSI={rssi}dBm SNR={snr}dB")
+else:
+    print(f"📨 Fragment {fragment_id+1:2d}/{total:2d} ✅ ({len(fragment_data):3d} bytes) "
+          f"Progress: {received:2d}/{total:2d} ({received/total*100:5.1f}%) "
+          f"{rssi_status} RSSI={rssi}dBm SNR={snr}dB")
+```
+
+---
+
+## Summary of Changes
+
+### Data Type Changes
+- **`H` format** (16-bit unsigned int, max 65,535) → **`I` format** (32-bit unsigned int, max 4,294,967,295)
+- **Start packet**: `<HH` → `<II` (image size + fragment count)
+- **Fragment packet**: `<HHH` → `<IIH` (fragment_id + total_fragments + data_length)
+
+### Packet Size Changes
+- **Start packet minimum size**: 21 bytes → 25 bytes (+4 bytes)
+- **Fragment packet minimum size**: 15 bytes → 17 bytes (+2 bytes)
+
+### Benefits
+- ✅ Support for images up to 4GB in size
+- ✅ Support for up to 4 million fragments per image  
+- ✅ Fixes "ushort format requires 0 <= number <= 65535" error
+- ✅ Better handling and display of large fragment counts
+- ✅ Enhanced error messages with size validation
+
+### Testing
+After applying these changes:
+1. Your 128KB images should transmit successfully
+2. Fragment counts should display correctly (e.g., "Fragment 1/800" instead of "Fragment 1/3")
+3. All transmission modes (`original`, `batch`, `send-folder-image`) will work with large images
+
+## Commit Message Suggestion
+```
+Fix large image support (>65KB) - Update packet formats from 16-bit to 32-bit integers
+
+- Change struct formats from '<HH' to '<II' for start packets  
+- Change struct formats from '<HHH' to '<IIH' for fragment packets
+- Update minimum packet size validation (21→25, 15→17 bytes)
+- Improve display formatting for large fragment counts
+- Fixes "ushort format requires 0 <= number <= 65535" error
+- Now supports images up to 4GB and 4M+ fragments
+```
