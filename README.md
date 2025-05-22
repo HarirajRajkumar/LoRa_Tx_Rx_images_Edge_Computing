@@ -14,7 +14,7 @@ A comprehensive Python-based system for transmitting images over LoRa networks u
 
 ### Hardware Support
 - **RAK3172 LoRa Modules**: Optimized for RAK3172-E with RUI 4.2.0
-- **USB-UART Interface**: CH340/CH341 compatible
+- **USB-UART Interface**
 - **Camera Integration**: OpenCV-based camera capture
 - **Multi-format Support**: JPG, PNG, BMP, TIFF image formats
 
