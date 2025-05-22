@@ -287,6 +287,8 @@ The system generates research-grade data including:
 
 ---
 
+### Problem: command batch needs to be modified
+
 ## 📄 License
 
 This system is designed for research and educational purposes. Please ensure compliance with local LoRa frequency regulations.
